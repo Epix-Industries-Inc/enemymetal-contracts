@@ -51,6 +51,10 @@ pub contract EnemyMetal: NonFungibleToken {
             self.id = initID
             self.data = initData
         }
+
+        destroy() {
+            emit Burn(id: self.id)
+        }
     }
 
     pub resource interface EnemyMetalCollectionPublic {
@@ -126,9 +130,11 @@ pub contract EnemyMetal: NonFungibleToken {
         }
 
         // claim
-        // Mints new NFTs from components and claimable NFT burned afterwards
-		// and depositing it in the user collection
-		pub fun claim(claimID: UInt64, claimComponentIds: [UInt64]) {
+        // resource owners when claiming Mint new NFTs and burn the claimID resource.
+        // If claimNFT has components the resource owner also needs to own editions of those
+        // and give permission to burn them in order for the claim to succeed
+        // finally new NFT's are deposited to collection
+        pub fun claim(claimID: UInt64, claimComponentIds: [UInt64]) {
             pre {
                 self.ownedNFTs[claimID] != nil : "missing claim NFT"
             }
@@ -150,23 +156,21 @@ pub contract EnemyMetal: NonFungibleToken {
                 let componentTokenRef = (&self.ownedNFTs[componentID] as auth &NonFungibleToken.NFT) as! &EnemyMetal.NFT
                 if claimToken.data.components.contains(componentTokenRef.data.editionID) {
                     destroy <- self.withdraw(withdrawID: componentID)
-                    emit Burn(id: componentID)
                 } else {
                     panic("claim token components does not have component with id: ".concat(componentID.toString()).concat(" and type: ").concat(componentTokenRef.data.editionID.toString()))
                 }
             }
 
             for claim in claimToken.data.claims {
+                EnemyMetal.totalSupply = EnemyMetal.totalSupply + (1 as UInt64)
                 emit Minted(id: EnemyMetal.totalSupply, editionID: claimToken.data.editionID, metadata: claim.metadata, componentsSize: claim.components.length, claimsSize: claim.claims.length)
                 // deposit it in the recipient's account using their reference
                 self.deposit(token: <-create EnemyMetal.NFT(initID: EnemyMetal.totalSupply, initData: claim))
-                EnemyMetal.totalSupply = EnemyMetal.totalSupply + (1 as UInt64)
             }
 
             destroy claimToken
-            emit Burn(id: claimID)
             emit Claimed(id: claimID)
-		}
+        }
 
         // destructor
         destroy() {
@@ -191,22 +195,22 @@ pub contract EnemyMetal: NonFungibleToken {
     // Resource that an admin or something similar would own to be
     // able to mint new NFTs
     //
-	pub resource NFTMinter {
-		// mintNFT
+    pub resource NFTMinter {
+        // mintNFT
         // Mints a new NFT with a new ID
-		// and deposit it in the recipients collection using their collection reference
-		pub fun mintNFT(recipient: &{NonFungibleToken.CollectionPublic}, data: NFTData) {
-            emit Minted(id: EnemyMetal.totalSupply, editionID: data.editionID, metadata: data.metadata, componentsSize: data.components.length, claimsSize: data.claims.length)
-			// deposit it in the recipient's account using their reference
-			recipient.deposit(token: <-create EnemyMetal.NFT(initID: EnemyMetal.totalSupply, initData: data))
+        // and deposit it in the recipients collection using their collection reference
+        pub fun mintNFT(recipient: &{NonFungibleToken.CollectionPublic}, data: NFTData) {
             EnemyMetal.totalSupply = EnemyMetal.totalSupply + (1 as UInt64)
-		}
-	}
+            emit Minted(id: EnemyMetal.totalSupply, editionID: data.editionID, metadata: data.metadata, componentsSize: data.components.length, claimsSize: data.claims.length)
+            // deposit it in the recipient's account using their reference
+            recipient.deposit(token: <-create EnemyMetal.NFT(initID: EnemyMetal.totalSupply, initData: data))
+        }
+    }
 
     // initializer
     //
-	init() {
-        self.totalSupply = 1
+    init() {
+        self.totalSupply = 0
         
         self.CollectionStoragePath = /storage/EnemyMetalCollection
         self.CollectionPublicPath = /public/EnemyMetalCollection
@@ -218,5 +222,5 @@ pub contract EnemyMetal: NonFungibleToken {
         self.account.save(<-minter, to: self.MinterStoragePath)
 
         emit ContractInitialized()
-	}
+    }
 }
