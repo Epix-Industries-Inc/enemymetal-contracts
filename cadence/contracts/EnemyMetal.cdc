@@ -139,12 +139,12 @@ pub contract EnemyMetal: NonFungibleToken {
                 self.ownedNFTs[claimID] != nil : "missing claim NFT"
             }
 
-            let claimToken <- self.withdraw(withdrawID: claimID) as! @EnemyMetal.NFT
-            if claimToken.data.claims.length == 0 {
+            let claimTokenRef = (&self.ownedNFTs[claimID] as auth &NonFungibleToken.NFT) as! &EnemyMetal.NFT
+            if claimTokenRef.data.claims.length == 0 {
                 panic("Claim NFT has empty claims")
             }
 
-            if claimToken.data.components.length !=  claimComponentIds.length {
+            if claimTokenRef.data.components.length !=  claimComponentIds.length {
                 panic("Claim NFT needs to provide required components to claim")
             }
             
@@ -154,20 +154,22 @@ pub contract EnemyMetal: NonFungibleToken {
                     panic("Missing component on receiver collection with id: ".concat(componentID.toString()))
                 }
                 let componentTokenRef = (&self.ownedNFTs[componentID] as auth &NonFungibleToken.NFT) as! &EnemyMetal.NFT
-                if claimToken.data.components.contains(componentTokenRef.data.editionID) {
-                    destroy <- self.withdraw(withdrawID: componentID)
+                if claimTokenRef.data.components.contains(componentTokenRef.data.editionID) {
+                    let token <- self.ownedNFTs.remove(key: componentID) ?? panic("missing component NFT")
+                    destroy token
                 } else {
                     panic("claim token components does not have component with id: ".concat(componentID.toString()).concat(" and type: ").concat(componentTokenRef.data.editionID.toString()))
                 }
             }
 
-            for claim in claimToken.data.claims {
+            for claim in claimTokenRef.data.claims {
                 EnemyMetal.totalSupply = EnemyMetal.totalSupply + (1 as UInt64)
-                emit Minted(id: EnemyMetal.totalSupply, editionID: claimToken.data.editionID, metadata: claim.metadata, componentsSize: claim.components.length, claimsSize: claim.claims.length)
+                emit Minted(id: EnemyMetal.totalSupply, editionID: claimTokenRef.data.editionID, metadata: claim.metadata, componentsSize: claim.components.length, claimsSize: claim.claims.length)
                 // deposit it in the recipient's account using their reference
                 self.deposit(token: <-create EnemyMetal.NFT(initID: EnemyMetal.totalSupply, initData: claim))
             }
 
+            let claimToken <- self.ownedNFTs.remove(key: claimID) ?? panic("missing claim NFT")
             destroy claimToken
             emit Claimed(id: claimID)
         }
